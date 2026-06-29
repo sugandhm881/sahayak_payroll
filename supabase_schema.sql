@@ -16,10 +16,11 @@
 -- ============================================================
 
 -- ── 1. Profile / configuration (single row, id = 1) ──────────
--- One row holds the active company's identity + email settings. Switch
--- companies by editing this row (or store many and pick one — see note).
+-- MULTI-TENANT: one profile row PER USER (Supabase auth user). Each login has
+-- its own company identity, logo, email settings and (separately) slip history.
 create table if not exists public.salary_profile (
-  id              integer primary key default 1,
+  id              bigint primary key,
+  user_id         uuid unique,                            -- owner (auth.users.id); one profile per user
   company_name    text,                                   -- e.g. 'Acme Pvt. Ltd.' (any organization)
   company_address text,                                   -- printed under the company name on each slip
   logo_data_url   text,                                   -- uploaded logo (base64 data URL) or hosted URL
@@ -28,24 +29,36 @@ create table if not exists public.salary_profile (
   smtp_host       text        default 'smtp.gmail.com',
   smtp_port       integer     default 587,
   smtp_user       text,                                   -- SMTP login (usually the Gmail address)
-  smtp_pass       text,                                   -- Gmail App Password (lets email work when hosted online)
+  smtp_pass       text,                                   -- Gmail App Password (per user; lets email work online)
   currency_symbol text        default '₹',                -- shown on amounts / net payable
-  updated_at      timestamptz not null default now(),
-  constraint salary_profile_singleton check (id = 1)
+  updated_at      timestamptz not null default now()
 );
 
--- For installs created before smtp_user/smtp_pass existed — safe to re-run.
-alter table public.salary_profile add column if not exists smtp_user text;
-alter table public.salary_profile add column if not exists smtp_pass text;
-
 comment on table public.salary_profile is
-  'Salary Slip Generator: active company identity, uploaded logo, and email/SMTP config. Single row (id=1).';
+  'Sahayak Pay Roll: per-user company identity, logo, and email/SMTP config (one row per auth user).';
 
--- Seed the single config row (no-op if it already exists). Values are left
--- blank on purpose so any company can fill them in from the app.
-insert into public.salary_profile (id)
-values (1)
-on conflict (id) do nothing;
+-- ===== MULTI-TENANT MIGRATION (safe to re-run on older single-row installs) =====
+alter table public.salary_profile      add column if not exists user_id   uuid;
+alter table public.salary_profile      add column if not exists smtp_user text;
+alter table public.salary_profile      add column if not exists smtp_pass text;
+alter table public.salary_slip_history add column if not exists user_id   uuid;
+alter table public.salary_profile drop constraint if exists salary_profile_singleton;
+-- Give salary_profile.id an auto-increment default so many rows can coexist.
+do $$
+begin
+  if not exists (select 1 from pg_class where relname = 'salary_profile_id_seq') then
+    create sequence public.salary_profile_id_seq owned by public.salary_profile.id;
+  end if;
+end $$;
+select setval('public.salary_profile_id_seq', greatest(coalesce((select max(id) from public.salary_profile), 0), 1), true);
+alter table public.salary_profile alter column id set default nextval('public.salary_profile_id_seq');
+create unique index if not exists uq_salary_profile_user on public.salary_profile(user_id);
+-- One-time carry-over: if there's exactly one account and one un-owned profile
+-- row, assign that row to the user so existing settings aren't lost.
+update public.salary_profile p set user_id = (select id from auth.users order by created_at limit 1)
+where p.user_id is null
+  and (select count(*) from auth.users) = 1
+  and (select count(*) from public.salary_profile where user_id is null) = 1;
 
 -- Keep updated_at fresh on every change.
 create or replace function public.salary_profile_touch_updated_at()
@@ -70,6 +83,7 @@ create trigger trg_salary_profile_updated_at
 -- company's slip layout without a schema change.
 create table if not exists public.salary_slip_history (
   id               uuid        primary key default gen_random_uuid(),
+  user_id          uuid,                                  -- owner (auth.users.id) — whose history this is
   company_name     text,                                  -- company this slip was issued under
   month            text,                                  -- e.g. 'June 2026' as shown on the slip
   employee_name    text        not null,
@@ -95,6 +109,7 @@ create table if not exists public.salary_slip_history (
 comment on table public.salary_slip_history is
   'Salary Slip Generator: audit log of every slip downloaded (action=pdf) or emailed (action=email), for any company.';
 
+create index if not exists idx_salary_slip_history_user       on public.salary_slip_history (user_id);
 create index if not exists idx_salary_slip_history_created_at on public.salary_slip_history (created_at desc);
 create index if not exists idx_salary_slip_history_company    on public.salary_slip_history (company_name);
 create index if not exists idx_salary_slip_history_month      on public.salary_slip_history (month);

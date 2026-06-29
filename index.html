@@ -268,6 +268,32 @@ body{font-family:system-ui,-apple-system,"Segoe UI",Roboto,Arial,sans-serif;back
 .toast.show{display:flex;animation:toastIn .25s ease}
 @keyframes toastIn{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:none}}
 
+/* HISTORY TREE */
+.hist-emp{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-sm);margin:0 auto .7rem;max-width:760px;box-shadow:var(--shadow-xs);overflow:hidden}
+.hist-emp-hd{display:flex;align-items:center;gap:11px;padding:.7rem .9rem;cursor:pointer;user-select:none}
+.hist-emp-hd:hover{background:var(--surface-2)}
+.hist-emp-name{font-size:13.5px;font-weight:800;color:var(--ink);flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.hist-caret{display:inline-block;width:14px;color:var(--faint);font-size:11px;transition:transform .15s;flex-shrink:0}
+.hist-open>.hist-emp-hd .hist-caret,.hist-open>.hist-mon-hd .hist-caret{transform:rotate(90deg)}
+.hist-count{font-size:11px;font-weight:700;color:var(--muted);background:var(--surface-2);border:1px solid var(--border-2);padding:2px 9px;border-radius:20px;flex-shrink:0}
+.hist-emp-body,.hist-mon-body{display:none}
+.hist-open>.hist-emp-body,.hist-open>.hist-mon-body{display:block}
+.hist-mon{border-top:1px solid var(--border)}
+.hist-mon-hd{display:flex;align-items:center;gap:10px;padding:.55rem .9rem .55rem 2rem;cursor:pointer;user-select:none;font-size:12.5px;font-weight:700;color:var(--ink-2)}
+.hist-mon-hd:hover{background:var(--surface-2)}
+.hist-slip{display:flex;align-items:center;gap:10px;flex-wrap:wrap;padding:.6rem .9rem .6rem 3rem;border-top:1px dashed var(--border-2)}
+.hist-slip .hs-net{font-weight:800;color:var(--ink);font-variant-numeric:tabular-nums}
+.hist-slip .hs-meta{font-size:11px;color:var(--muted);flex:1;min-width:120px}
+.hs-chip{font-size:10.5px;font-weight:700;padding:2px 9px;border-radius:20px;white-space:nowrap}
+.hs-dl{background:var(--accent-soft);color:#1d4ed8;border:1px solid #cfe0fb}
+.hs-sent{background:var(--green-soft);color:var(--green);border:1px solid #bce6cb}
+.hs-fail{background:var(--red-soft);color:var(--red);border:1px solid #f3b9b9}
+.hs-btn{padding:6px 11px;font-size:11.5px;font-weight:700;border-radius:var(--radius-xs);cursor:pointer;border:1px solid var(--border-2);background:var(--surface);color:var(--ink-2);font-family:inherit}
+.hs-btn:hover{background:var(--surface-2)}
+.hs-btn.pri{background:var(--primary);color:#fff;border-color:var(--primary)}
+.hs-btn.pri:hover{background:var(--primary-600)}
+.hist-empty{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px;color:var(--faint);padding:3rem 1rem;text-align:center;font-size:12.5px}
+
 /* MOBILE SIDEBAR DRAWER */
 .sb-backdrop{display:none;position:fixed;inset:0;background:rgba(15,23,42,.45);z-index:290}
 
@@ -354,6 +380,7 @@ body{font-family:system-ui,-apple-system,"Segoe UI",Roboto,Arial,sans-serif;back
 <!-- TABS -->
 <div class="tabs">
   <button class="tab on" id="tab-slips" onclick="switchTab('slips')">Salary Slips</button>
+  <button class="tab" id="tab-history" onclick="switchTab('history')">History</button>
   <button class="tab" id="tab-smtp" onclick="switchTab('smtp')">Email Configuration</button>
 </div>
 
@@ -387,16 +414,16 @@ body{font-family:system-ui,-apple-system,"Segoe UI",Roboto,Arial,sans-serif;back
       </div>
       <div class="logo-stat" id="logoStat"><span class="lno">No logo — initials shown as placeholder</span></div>
     </div>
-    <div style="display:flex;flex-direction:column;gap:6px">
-      <button class="btn-rm" id="rmBtn" onclick="removeLogo()">&#x2715; Remove</button>
-      <button class="btn-rm" id="coDoneBtn" style="display:none;border-color:#bce6cb;color:#15803d" onclick="doneCompany()">&#10003; Done</button>
+    <div style="display:flex;flex-direction:column;gap:6px;align-self:center">
+      <button class="btn-cfg btn-save-cfg" id="coSaveBtn" onclick="saveCompany()">&#10003; Save</button>
+      <button class="btn-rm" id="rmBtn" onclick="removeLogo()">&#x2715; Remove logo</button>
     </div>
   </div>
 
-  <!-- SLIM COMPANY SUMMARY (shown once setup is complete) -->
+  <!-- SLIM COMPANY SUMMARY (shown after Save) -->
   <div class="logo-bar" id="companySummary" style="display:none;justify-content:space-between">
     <div style="display:flex;align-items:center;gap:12px;min-width:0">
-      <img id="sumLogo" alt="" style="width:42px;height:42px;border-radius:10px;object-fit:contain;border:1px solid var(--border);background:#fff;flex-shrink:0">
+      <div id="sumLogoBox" style="width:42px;height:42px;flex-shrink:0"></div>
       <div style="min-width:0">
         <b id="sumName" style="font-size:13px;color:var(--ink);display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap"></b>
         <small id="sumAddr" style="color:var(--muted);display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap"></small>
@@ -509,6 +536,32 @@ body{font-family:system-ui,-apple-system,"Segoe UI",Roboto,Arial,sans-serif;back
   </div>
 </div>
 
+<!-- HISTORY VIEW -->
+<div id="view-history" style="display:none;flex-direction:column;flex:1;overflow:hidden">
+  <div class="ptbar">
+    <span class="ptitle">Previously generated slips — grouped by employee, then month. View or re-download any slip.</span>
+    <div class="search-wrap" style="max-width:240px;flex:1">
+      <svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+      <input class="sinput" type="text" id="histSearch" placeholder="Search employee…" oninput="renderHistory()">
+    </div>
+    <button class="btn btn-ghost" onclick="loadHistory()">&#8635; Refresh</button>
+  </div>
+  <div id="histTree" style="flex:1;overflow-y:auto;padding:1rem 1.1rem;background:var(--bg)"></div>
+</div>
+
+<!-- HISTORY SLIP VIEW MODAL -->
+<div class="overlay" id="histModal">
+  <div class="modal" style="max-width:760px">
+    <h3 id="histModalTitle">&#128196; Salary Slip</h3>
+    <p class="msub" id="histModalSub"></p>
+    <div id="histSlipView" style="max-height:64vh;overflow:auto;background:var(--bg);border-radius:8px;padding:12px"></div>
+    <div class="modal-acts">
+      <button class="btn-cancel2" onclick="closeHistModal()">Close</button>
+      <button class="btn-send2" id="histDlBtn">&#8681; Download PDF</button>
+    </div>
+  </div>
+</div>
+
 <!-- EMAIL MODAL -->
 <div class="overlay" id="emailModal">
   <div class="modal">
@@ -521,6 +574,7 @@ body{font-family:system-ui,-apple-system,"Segoe UI",Roboto,Arial,sans-serif;back
     <div id="eSubjHint" style="display:none;font-size:10.5px;color:#64748b;margin-top:3px">Tip: <b>{name}</b> is replaced with each employee's name.</div>
     <span class="ml">Message</span>
     <textarea id="eMsg"></textarea>
+    <div id="eMsgHint" style="display:none;font-size:10.5px;color:#64748b;margin-top:3px">Tip: <b>{name}</b> becomes each employee's first name.</div>
     <div class="prog-wrap" id="progWrap">
       <div class="prog-lbl" id="progLbl">Sending…</div>
       <div class="prog-bar"><div class="prog-fill" id="progFill"></div></div>
@@ -535,6 +589,16 @@ body{font-family:system-ui,-apple-system,"Segoe UI",Roboto,Arial,sans-serif;back
   </div>
 </div>
 
+
+<!-- EMAIL SENDING LOADER (logo-based, same style as the app loader) -->
+<div id="sendLoader" style="display:none;position:fixed;inset:0;z-index:700;background:rgba(255,255,255,.96);flex-direction:column;align-items:center;justify-content:center;gap:16px;backdrop-filter:blur(2px)">
+  <img src="sayahak_logo.png" alt="Sahayak Pay Roll" style="width:104px;height:104px;object-fit:contain;animation:logoPulse 1.4s ease-in-out infinite">
+  <div id="sendLoaderLbl" style="font-size:15px;font-weight:800;color:#1e3a5f">Sending…</div>
+  <div style="width:260px;max-width:72vw;height:7px;background:#e2e8f0;border-radius:5px;overflow:hidden">
+    <div id="sendLoaderFill" style="height:100%;width:0%;background:linear-gradient(90deg,#3b82f6,#1e3a5f);transition:width .25s"></div>
+  </div>
+  <div id="sendLoaderSub" style="font-size:11.5px;color:#64748b;min-height:14px"></div>
+</div>
 
 <!-- TOAST -->
 <div class="toast" id="toast"><span id="toastMsg"></span></div>
@@ -554,10 +618,13 @@ const RELAY_BASE = location.protocol==="file:" ? "http://localhost:3001" : "";
 
 /* ── TABS ── */
 function switchTab(t){
-  document.getElementById("view-slips").style.display = t==="slips"?"flex":"none";
-  document.getElementById("view-smtp").style.display  = t==="smtp"?"block":"none";
-  document.getElementById("tab-slips").className = "tab"+(t==="slips"?" on":"");
-  document.getElementById("tab-smtp").className  = "tab"+(t==="smtp"?" on":"");
+  document.getElementById("view-slips").style.display   = t==="slips"?"flex":"none";
+  document.getElementById("view-history").style.display = t==="history"?"flex":"none";
+  document.getElementById("view-smtp").style.display    = t==="smtp"?"block":"none";
+  document.getElementById("tab-slips").className   = "tab"+(t==="slips"?" on":"");
+  document.getElementById("tab-history").className = "tab"+(t==="history"?" on":"");
+  document.getElementById("tab-smtp").className    = "tab"+(t==="smtp"?" on":"");
+  if(t==="history") loadHistory();
 }
 
 /* ── LOGO ── */
@@ -729,6 +796,8 @@ function resetDrop(){
 
 /* ── LIST ── */
 function ini(n){ return n.replace(/^(Mr\.?s?\.?|Ms\.?|Dr\.?|MD\.?)\s*/i,"").trim().split(/\s+/).slice(0,2).map(function(w){return w[0]?w[0].toUpperCase():"";}).join(""); }
+// First name (salutation stripped) for personalized email greetings.
+function firstName(n){ return String(n||"").replace(/^(Mr\.?s?\.?|Ms\.?|Dr\.?|MD\.?)\s*/i,"").trim().split(/\s+/)[0]||String(n||""); }
 function col_color(i){ return COLORS[i%COLORS.length]; }
 
 function renderList(){
@@ -857,8 +926,8 @@ function dataRowsTbl(e){
   }
   return h;
 }
-function buildInline(e){
-  const mon=month.replace("-"," ").replace(/_/g," ");
+function buildInline(e, monthRaw){
+  const mon=String(monthRaw||month).replace("-"," ").replace(/_/g," ");
   return '<div class="slip">'
     +'<div class="slip-hdr">'+logoTagInline()+'<div class="slip-hdr-txt"><div class="slip-sn">'+esc(COMPANY.name)+'</div><div class="slip-sa">'+esc(COMPANY.addr)+'</div><div class="slip-sm">Salary Slip Month of '+mon+'</div></div></div>'
     +'<div class="slip-emp-row"><div class="slip-ec"><b>Employee Name :</b>&nbsp;'+esc(e.name)+'</div><div class="slip-ec"><b>Designation :</b>&nbsp;'+esc(e.designation)+'</div></div>'
@@ -915,13 +984,13 @@ function previewSel(){
 function pdfLibReady(){
   return !!(window.jspdf && window.jspdf.jsPDF) && typeof window.html2canvas==="function";
 }
-function pdfFileName(e){
-  const mon=month.replace(/[-_]/g," ").trim();
+function pdfFileName(e, monthRaw){
+  const mon=String(monthRaw||month).replace(/[-_]/g," ").trim();
   return "Salary Slip - "+String(e.name||"").replace(/[\\/:*?"<>|]/g,"").trim()+" - "+mon+".pdf";
 }
 // Render the given slips into a LANDSCAPE A4 jsPDF document (one slip per page),
 // matching the wide salary-slip format. Shared by Download PDF and email.
-async function buildSlipsPdf(arr){
+async function buildSlipsPdf(arr, monthRaw){
   if(!pdfLibReady()) return null;
   const jsPDFCtor=window.jspdf.jsPDF;
   const holder=document.createElement("div");
@@ -934,7 +1003,7 @@ async function buildSlipsPdf(arr){
     const pageH=pdf.internal.pageSize.getHeight();  // ~595pt
     const margin=24;
     for(let i=0;i<arr.length;i++){
-      holder.innerHTML=buildInline(arr[i]);
+      holder.innerHTML=buildInline(arr[i], monthRaw);
       const slip=holder.firstChild;
       if(slip&&slip.style){ slip.style.maxWidth="none"; slip.style.width="100%"; slip.style.margin="0"; slip.style.boxShadow="none"; }
       const canvas=await window.html2canvas(slip,{scale:2,backgroundColor:"#ffffff",useCORS:true,logging:false});
@@ -1006,10 +1075,13 @@ function openEmailModal(){
   // recipients we use the {name} token, replaced per employee at send time.
   document.getElementById("eSubj").value=(sel.length===1?sel[0].name:"{name}")+" – Salary Slip – "+mon;
   document.getElementById("eSubjHint").style.display=sel.length>1?"block":"none";
-  const fn=sel.length===1?sel[0].name.replace(/^(Mr\.?s?\.?|Ms\.?|Dr\.?|MD\.?)\s*/i,"").trim().split(" ")[0]:"All";
-  document.getElementById("eMsg").value=sel.length===1
-    ?"Dear "+fn+",\n\nPlease find your salary slip for "+mon+" attached as a PDF.\n\nFor queries contact the accounts department.\n\nRegards,\n"+SMTP.fname+(COMPANY.name?"\n"+COMPANY.name:"")
-    :"Dear Colleague,\n\nPlease find your salary slip for "+mon+" attached as a PDF.\n\nFor queries contact the accounts department.\n\nRegards,\n"+SMTP.fname+(COMPANY.name?"\n"+COMPANY.name:"");
+  // Body greeting uses the first name. For one recipient it's filled in; for
+  // many it uses the {name} token, replaced with each person's first name at
+  // send time — so everyone gets a personalized "Dear <name>," just like solo.
+  const greet=sel.length===1?firstName(sel[0].name):"{name}";
+  document.getElementById("eMsg").value=
+    "Dear "+greet+",\n\nPlease find your salary slip for "+mon+" attached as a PDF.\n\nFor queries contact the accounts department.\n\nRegards,\n"+SMTP.fname+(COMPANY.name?"\n"+COMPANY.name:"");
+  document.getElementById("eMsgHint").style.display=sel.length>1?"block":"none";
   document.getElementById("progWrap").style.display="none";
   document.getElementById("progFill").style.width="0%";
   var sb=document.getElementById("sendBtn"); sb.disabled=false;
@@ -1024,26 +1096,26 @@ async function sendRelay(){
   if(!pdfLibReady()){toast("PDF engine not loaded — cannot attach slips","#dc2626");return;}
   const sb=document.getElementById("sendBtn"); sb.disabled=true;
   document.getElementById("sBtnTxt").textContent="Sending…";
-  const pw=document.getElementById("progWrap"); pw.style.display="block";
-  const pf=document.getElementById("progFill");
-  const pl=document.getElementById("progLbl");
   const subjTmpl=document.getElementById("eSubj").value;
-  const bodyTxt=document.getElementById("eMsg").value;
+  const bodyTmpl=document.getElementById("eMsg").value;
+  showSendLoader("Preparing…","");          // logo-based loader during sending
   let done=0,failed=0; const histRows=[];
   for(let i=0;i<sel.length;i++){
     const e=sel[i];
     if(!e.email){done++;continue;}
     let okSend=false, errMsg=null;
-    // Per-employee subject: replace the {name} token with this employee's name.
+    // Personalize per employee: {name} -> full name in the subject, first name
+    // in the body greeting (so multi-send reads just like a solo send).
     const subj=subjTmpl.replace(/\{name\}/gi, e.name);
+    const bodyTxt=bodyTmpl.replace(/\{name\}/gi, firstName(e.name));
     try{
       // Build this employee's slip as a PDF and send it as an attachment.
       // The email body is just the plain message — this is far less likely
       // to be flagged as spam than a large inline-HTML slip.
-      pl.textContent="Preparing "+(done+1)+" / "+sel.length+"…";
+      updateSendLoader("Preparing "+(done+1)+" / "+sel.length+"…", e.name, done/sel.length);
       const pdf=await buildSlipsPdf([e]);
       const pdfBase64=pdf.output("datauristring").split(",")[1];
-      pl.textContent="Sending "+(done+1)+" / "+sel.length+"…";
+      updateSendLoader("Sending "+(done+1)+" / "+sel.length+"…", e.email||e.name, done/sel.length);
       const hdrs={"Content-Type":"application/json"}; if(AUTH.token) hdrs["Authorization"]="Bearer "+AUTH.token;
       const r=await fetch(RELAY_BASE+"/send",{
         method:"POST",headers:hdrs,
@@ -1054,16 +1126,26 @@ async function sendRelay(){
     }catch(err){ failed++; errMsg=err.message; }
     done++;
     histRows.push(histRow(e,"email",okSend?"sent":"failed",errMsg));
-    pf.style.width=(done/sel.length*100)+"%";
+    updateSendLoader("Sent "+done+" / "+sel.length, "", done/sel.length);
     await new Promise(function(r){setTimeout(r,180);});
   }
   logHistory(histRows);
   setTimeout(function(){
+    hideSendLoader();
     closeModal();
     toast(failed>0?(done-failed)+" sent, "+failed+" failed — is relay running?":done+" slip"+(done>1?"s":"")+" sent as PDF","#166534");
     sb.disabled=false; document.getElementById("sBtnTxt").textContent="Send with PDF";
   },400);
 }
+/* ── EMAIL SENDING LOADER (logo-based) ── */
+function showSendLoader(lbl,sub){ updateSendLoader(lbl,sub,0); document.getElementById("sendLoader").style.display="flex"; }
+function updateSendLoader(lbl,sub,frac){
+  var L=document.getElementById("sendLoaderLbl"), S=document.getElementById("sendLoaderSub"), F=document.getElementById("sendLoaderFill");
+  if(L&&lbl!=null) L.textContent=lbl;
+  if(S&&sub!=null) S.textContent=sub;
+  if(F&&frac!=null) F.style.width=Math.round(Math.max(0,Math.min(1,frac))*100)+"%";
+}
+function hideSendLoader(){ var l=document.getElementById("sendLoader"); if(l) l.style.display="none"; }
 
 /* ── SMTP CONFIG ── */
 async function saveSmtp(){
@@ -1231,32 +1313,44 @@ function loadCompany(){
   if(n) n.value=COMPANY.name;
   if(a) a.value=COMPANY.addr;
 }
-// Setup is "complete" once name, address and logo are all set.
-function companyComplete(){ return !!(COMPANY.name && COMPANY.addr && logo); }
-// Show the full setup bar while editing or incomplete; otherwise a slim summary.
+// "Saved" once a name + address exist (logo optional). The slim summary is
+// then shown on the home page instead of the full setup form.
+function companySaved(){ return !!(COMPANY.name && COMPANY.addr); }
+// Show the full setup form while editing or not yet saved; else a slim summary.
 function refreshCompanyBar(){
-  var bar=document.getElementById("logoBar"), sum=document.getElementById("companySummary"), done=document.getElementById("coDoneBtn");
+  var bar=document.getElementById("logoBar"), sum=document.getElementById("companySummary");
   if(!bar||!sum) return;
-  var showFull = !companyComplete() || companyEditMode;
+  var showFull = companyEditMode || !companySaved();
   bar.style.display = showFull?"flex":"none";
   sum.style.display = showFull?"none":"flex";
-  if(done) done.style.display = companyComplete()?"inline-flex":"none";
   if(!showFull){
     document.getElementById("sumName").textContent = COMPANY.name||"";
     document.getElementById("sumAddr").textContent = COMPANY.addr||"";
-    var sl=document.getElementById("sumLogo"); if(sl) sl.src = logo||"";
+    document.getElementById("sumLogoBox").innerHTML = logo
+      ? '<img src="'+logo+'" alt="" style="width:42px;height:42px;border-radius:10px;object-fit:contain;border:1px solid var(--border);background:#fff">'
+      : '<div style="width:42px;height:42px;border-radius:10px;background:var(--primary);color:#fff;display:flex;align-items:center;justify-content:center;font-weight:800;font-size:13px">'+logoPhText()+'</div>';
   }
 }
 function editCompany(){ companyEditMode=true; refreshCompanyBar(); }
-function doneCompany(){ companyEditMode=false; refreshCompanyBar(); }
+// Save company name, address & logo, then hide the form (collapse to summary).
+function saveCompany(){
+  COMPANY.name=(document.getElementById("coName")||{value:""}).value.trim();
+  COMPANY.addr=(document.getElementById("coAddr")||{value:""}).value.trim();
+  if(!COMPANY.name||!COMPANY.addr){ toast("Enter company name and address first","#dc2626"); return; }
+  try{ localStorage.setItem("salaryCompany",JSON.stringify(COMPANY)); }catch(_e){}
+  saveProfile({logo_data_url:logo||null});          // persist name, address & logo together
+  companyEditMode=false;
+  refreshCompanyBar();
+  if(selected.size>0) previewSel();
+  toast(AUTH.enabled&&AUTH.token?"Company details saved":"Company details saved on this device","#15803d");
+}
 let _profileTimer=null;
 function onCompanyEdit(){
   COMPANY.name=(document.getElementById("coName")||{value:""}).value;
   COMPANY.addr=(document.getElementById("coAddr")||{value:""}).value;
   try{ localStorage.setItem("salaryCompany",JSON.stringify(COMPANY)); }catch(_e){}
-  companyEditMode=true;          // stay in the editor while typing
+  companyEditMode=true;          // stay in the editor while typing (Save collapses it)
   if(selected.size>0) previewSel();
-  refreshCompanyBar();
   clearTimeout(_profileTimer); _profileTimer=setTimeout(function(){ saveProfile(); },700);
 }
 
@@ -1294,6 +1388,9 @@ async function authSubmit(){
 function logout(){
   AUTH.token=""; AUTH.email="";
   localStorage.removeItem("salaryToken"); localStorage.removeItem("salaryEmail");
+  localStorage.removeItem("salaryCompany");      // don't leak company to the next user
+  applyProfile(null);                            // clear company/logo/email fields
+  document.getElementById("c_pass").value="";
   afterAuthUI(); showAuth(true);
 }
 function afterAuthUI(){
@@ -1310,20 +1407,28 @@ function authedFetch(path,opts){
   });
 }
 
-/* ── PROFILE & HISTORY (saved to Supabase via the server) ── */
+/* ── PROFILE & HISTORY (per-user, saved to Supabase via the server) ── */
+// Apply this user's profile. Passing null/empty CLEARS state so a different
+// user logging in on the same browser never sees the previous user's company.
 function applyProfile(p){
-  if(!p) return;
+  p = p || {};
   COMPANY.name=p.company_name||""; COMPANY.addr=p.company_address||"";
   loadCompany();
-  if(p.logo_data_url){
-    logo=p.logo_data_url;
-    var img=document.getElementById("logoImg"); img.src=logo; img.style.display="block";
+  logo = p.logo_data_url||"";
+  var img=document.getElementById("logoImg");
+  if(logo){
+    img.src=logo; img.style.display="block";
     document.getElementById("lph").style.display="none";
     document.getElementById("logoStat").innerHTML='<span class="lok">&#10003; Logo loaded — showing in slips</span>';
     document.getElementById("rmBtn").style.display="inline-flex";
+  } else {
+    img.src=""; img.style.display="none";
+    document.getElementById("lph").style.display="flex";
+    document.getElementById("logoStat").innerHTML='<span class="lno">No logo — initials shown as placeholder</span>';
+    document.getElementById("rmBtn").style.display="none";
   }
-  if(p.from_name){ SMTP.fname=p.from_name; var cfn=document.getElementById("c_fname"); if(cfn) cfn.value=p.from_name; }
-  if(p.from_email){ SMTP.from=p.from_email; var cfr=document.getElementById("c_from"); if(cfr) cfr.value=p.from_email; }
+  SMTP.fname=p.from_name||SMTP.fname; var cfn=document.getElementById("c_fname"); if(cfn) cfn.value=SMTP.fname;
+  SMTP.from=p.from_email||""; var cfr=document.getElementById("c_from"); if(cfr) cfr.value=SMTP.from;
   if(p.smtp_host){ SMTP.host=p.smtp_host; var ch=document.getElementById("c_host"); if(ch) ch.value=p.smtp_host; }
   try{ localStorage.setItem("salaryCompany",JSON.stringify({name:COMPANY.name,addr:COMPANY.addr})); }catch(_e){}
   companyEditMode=false; refreshCompanyBar();   // collapse to summary if fully set up
@@ -1332,7 +1437,7 @@ function applyProfile(p){
 function loadProfileFromDb(){
   if(!AUTH.enabled) return;
   authedFetch("/api/profile").then(function(r){return r.ok?r.json():null;})
-    .then(function(d){ if(d&&d.profile) applyProfile(d.profile); }).catch(function(){});
+    .then(function(d){ applyProfile(d&&d.profile); }).catch(function(){});   // null clears state for new users
 }
 function saveProfile(extra){
   if(!AUTH.enabled||!AUTH.token) return;   // local-only mode: nothing to sync
@@ -1347,6 +1452,97 @@ function histRow(e,action,status,error){
 function logHistory(rows){
   if(!AUTH.enabled||!AUTH.token||!rows||!rows.length) return;
   authedFetch("/api/history",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(rows)}).catch(function(){});
+}
+
+/* ── HISTORY VIEW (folders: Employee → Month-Year → slip) ── */
+let HIST_ROWS=[], histSlips=[];
+function rowToEmp(r){
+  return { name:r.employee_name||"", designation:r.designation||"", email:r.email||"",
+    basic:+r.basic||0, da:+r.da||0, hra:+r.hra||0, tpt:+r.tpt||0,
+    pf:+r.pf||0, it:+r.income_tax||0, advance:+r.advance||0,
+    gross:+r.gross||0, totalDed:+r.total_deduction||0, net:+r.net||0 };
+}
+function loadHistory(){
+  var box=document.getElementById("histTree"); if(!box) return;
+  if(!AUTH.enabled){ box.innerHTML='<div class="hist-empty">&#128274; History is available when login (Supabase) is enabled.</div>'; return; }
+  box.innerHTML='<div class="loading"><div class="spinner"></div><p>Loading history…</p></div>';
+  authedFetch("/api/history").then(function(r){return r.ok?r.json():null;})
+    .then(function(d){ HIST_ROWS=(d&&d.history)||[]; renderHistory(); })
+    .catch(function(){ box.innerHTML='<div class="hist-empty">Could not load history.</div>'; });
+}
+function fmtDate(s){ if(!s) return ""; var d=new Date(s); if(isNaN(d)) return ""; return d.toLocaleDateString("en-IN",{day:"2-digit",month:"short",year:"numeric"}); }
+function renderHistory(){
+  var box=document.getElementById("histTree"); if(!box) return;
+  var q=(document.getElementById("histSearch")||{value:""}).value.toLowerCase();
+  // group: employee -> month -> rows
+  var emps={};
+  HIST_ROWS.forEach(function(r){
+    var nm=r.employee_name||"(no name)";
+    if(q && nm.toLowerCase().indexOf(q)===-1) return;
+    var mon=r.month||"(no month)";
+    (emps[nm]=emps[nm]||{})[mon]=(emps[nm][mon]||[]);
+    emps[nm][mon].push(r);
+  });
+  var names=Object.keys(emps).sort(function(a,b){return a.localeCompare(b);});
+  if(!names.length){ box.innerHTML='<div class="hist-empty">&#128193;<br>'+(q?'No employees match "'+esc(q)+'"':'No history yet — download or email a slip and it will appear here.')+'</div>'; return; }
+  histSlips=[];
+  var html="";
+  names.forEach(function(nm){
+    var months=Object.keys(emps[nm]).sort().reverse();
+    var total=0; months.forEach(function(m){total+=emps[nm][m].length;});
+    html+='<div class="hist-emp"><div class="hist-emp-hd" onclick="toggleHist(this)">'
+      +'<span class="hist-caret">&#9654;</span>'
+      +'<div class="eav" style="background:'+col_color(nm.length)+'">'+esc(ini(nm))+'</div>'
+      +'<div class="hist-emp-name">'+esc(nm)+'</div>'
+      +'<span class="hist-count">'+months.length+' month'+(months.length>1?"s":"")+'</span></div>'
+      +'<div class="hist-emp-body">';
+    months.forEach(function(m){
+      var rows=emps[nm][m].slice().sort(function(a,b){return (b.created_at||"").localeCompare(a.created_at||"");});
+      var latest=rows[0];
+      var downloads=rows.filter(function(r){return r.action==="pdf";}).length;
+      var emailRows=rows.filter(function(r){return r.action==="email";});
+      var sent=emailRows.filter(function(r){return r.status==="sent";})[0];
+      var failed=emailRows.filter(function(r){return r.status==="failed";})[0];
+      var idx=histSlips.length;
+      histSlips.push({emp:nm, monthRaw:m, e:rowToEmp(latest), email:latest.email||""});
+      var chips="";
+      if(downloads) chips+='<span class="hs-chip hs-dl">&#8681; Downloaded'+(downloads>1?" ×"+downloads:"")+'</span> ';
+      if(sent) chips+='<span class="hs-chip hs-sent">&#10003; Emailed '+fmtDate(sent.created_at)+'</span> ';
+      else if(failed) chips+='<span class="hs-chip hs-fail">&#9888; Email failed</span> ';
+      html+='<div class="hist-mon"><div class="hist-mon-hd" onclick="toggleHist(this)">'
+        +'<span class="hist-caret">&#9654;</span>&#128197; '+esc(String(m).replace(/[-_]/g," "))
+        +' <span class="hist-count">'+rows.length+'</span></div>'
+        +'<div class="hist-mon-body"><div class="hist-slip">'
+        +'<span class="hs-net">₹'+(+latest.net||0).toLocaleString("en-IN")+'</span>'
+        +'<span class="hs-meta">'+chips+'<br>'+esc(latest.email||"no email")+' &middot; last: '+fmtDate(latest.created_at)+'</span>'
+        +'<button class="hs-btn" onclick="histView('+idx+')">&#128065; View</button>'
+        +'<button class="hs-btn pri" onclick="histDownload('+idx+',this)">&#8681; Download</button>'
+        +'</div></div></div>';
+    });
+    html+='</div></div>';
+  });
+  box.innerHTML=html;
+}
+function toggleHist(hd){ var p=hd.parentNode; p.classList.toggle("hist-open"); }
+function histView(i){
+  var s=histSlips[i]; if(!s) return;
+  document.getElementById("histModalTitle").innerHTML="&#128196; "+esc(s.e.name);
+  document.getElementById("histModalSub").textContent="Salary Slip — "+String(s.monthRaw).replace(/[-_]/g," ");
+  document.getElementById("histSlipView").innerHTML=buildInline(s.e, s.monthRaw);
+  var dl=document.getElementById("histDlBtn"); dl.onclick=function(){ histDownload(i,dl); };
+  document.getElementById("histModal").classList.add("open");
+}
+function closeHistModal(){ document.getElementById("histModal").classList.remove("open"); }
+async function histDownload(i,btn){
+  var s=histSlips[i]; if(!s) return;
+  if(!pdfLibReady()){ toast("PDF engine not loaded","#dc2626"); return; }
+  var t0=btn?btn.innerHTML:""; if(btn){ btn.disabled=true; btn.innerHTML="Preparing…"; }
+  try{
+    var pdf=await buildSlipsPdf([s.e], s.monthRaw);
+    pdf.save(pdfFileName(s.e, s.monthRaw));
+    toast("Salary slip downloaded","#15803d");
+  }catch(err){ toast("Could not build PDF: "+err.message,"#dc2626"); }
+  finally{ if(btn){ btn.disabled=false; btn.innerHTML=t0; } }
 }
 
 /* ── MOBILE SIDEBAR DRAWER ── */

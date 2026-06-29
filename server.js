@@ -31,6 +31,10 @@ const cors       = require('cors');
 const path       = require('path');
 
 const env = process.env;
+// Folder that holds index.html and the static assets. On Vercel (serverless)
+// the included files sit at the deployment root (process.cwd()); locally they
+// sit next to this file (__dirname).
+const ROOT = env.VERCEL ? process.cwd() : __dirname;
 
 // ── Configuration ──
 // Read from environment / .env. Both naming styles are accepted:
@@ -114,6 +118,37 @@ function buildTransport() {
 }
 function mailReady() { return !!(mailCfg.user && mailCfg.pass); }
 
+// ── Per-user mailers (multi-tenant) ──
+// Each logged-in user sends with the SMTP credentials saved in their own
+// salary_profile row. Falls back to the global .env mailer if they haven't set
+// their own. Cached per user; invalidated when they save new settings.
+const userMailers = new Map();   // user_id -> { cfg, transporter } | null
+function makeTransport(cfg) {
+  return nodemailer.createTransport({
+    host: cfg.host, port: cfg.port, secure: cfg.port === 465,
+    auth: { user: cfg.user, pass: cfg.pass }
+  });
+}
+async function getUserMailer(uid) {
+  if (userMailers.has(uid)) return userMailers.get(uid);
+  let m = null;
+  if (sbReady && uid) {
+    const out = await sb('/rest/v1/salary_profile?user_id=eq.' + uid + '&select=*');
+    const p = out.ok && Array.isArray(out.data) ? out.data[0] : null;
+    if (p && p.smtp_pass && (p.smtp_user || p.from_email)) {
+      const cfg = {
+        host: p.smtp_host || 'smtp.gmail.com', port: p.smtp_port || 587,
+        user: p.smtp_user || p.from_email, pass: p.smtp_pass,
+        fromName: p.from_name || 'Accounts Department'
+      };
+      m = { cfg, transporter: makeTransport(cfg) };
+    }
+  }
+  if (!m && mailReady()) m = { cfg: { ...mailCfg }, transporter };   // global .env fallback
+  userMailers.set(uid, m);
+  return m;
+}
+
 if (!CONFIG.pass) {
   console.warn('\n⚠ No mail password in .env. Email sending is disabled until you set');
   console.warn('  the Gmail App Password in the app (Email Configuration → Save Settings),');
@@ -142,14 +177,14 @@ const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 // single place: start this relay and open http://localhost:<port> in a browser.
 // The page and the /send + /health endpoints are then same-origin.
 app.get('/', (_req, res) => {
-  res.sendFile(path.join(__dirname, 'index.html'));
+  res.sendFile(path.join(ROOT, 'index.html'));
 });
 
 // Static assets the page needs (logo + the PDF/Excel libraries). Listed
 // explicitly so source files like .env and server.js are never served.
 ['/lps_logo.png', '/sayahak_logo.png', '/sayahak_logo_2.5.png', '/jspdf.umd.min.js', '/html2canvas.min.js'].forEach(file => {
   app.get(file, (_req, res) => {
-    res.sendFile(path.join(__dirname, file.slice(1)), err => {
+    res.sendFile(path.join(ROOT, file.slice(1)), err => {
       if (err && !res.headersSent) res.status(404).end();
     });
   });
@@ -187,37 +222,43 @@ async function loginAndRespond(email, password, res) {
   res.json({ ok: true, access_token: out.data.access_token, email: out.data.user && out.data.user.email });
 }
 
-// ── Data: company profile (single row) ──
-app.get('/api/profile', requireAuth, async (_req, res) => {
-  const out = await sb('/rest/v1/salary_profile?id=eq.1&select=*');
+// ── Data: company profile (one row PER USER) ──
+app.get('/api/profile', requireAuth, async (req, res) => {
+  const uid = req.user && req.user.id;
+  const out = await sb('/rest/v1/salary_profile?user_id=eq.' + uid + '&select=*');
   if (!out.ok) return res.status(out.status).json({ ok: false, error: sbErr(out, 'Could not load profile') });
   res.json({ ok: true, profile: Array.isArray(out.data) ? out.data[0] || null : null });
 });
 
 app.post('/api/profile', requireAuth, async (req, res) => {
+  const uid = req.user && req.user.id;
   const b = req.body || {};
-  const patch = {
+  const row = {
     company_name: b.company_name, company_address: b.company_address, logo_data_url: b.logo_data_url,
     from_name: b.from_name, from_email: b.from_email, smtp_host: b.smtp_host,
     smtp_port: b.smtp_port, currency_symbol: b.currency_symbol
   };
-  Object.keys(patch).forEach(k => patch[k] === undefined && delete patch[k]);
-  const out = await sb('/rest/v1/salary_profile?id=eq.1', {
-    method: 'PATCH', headers: { Prefer: 'return=representation' }, body: patch
+  Object.keys(row).forEach(k => row[k] === undefined && delete row[k]);
+  row.user_id = uid;   // owner + upsert conflict target
+  // Upsert this user's profile (insert first time, update thereafter).
+  const out = await sb('/rest/v1/salary_profile?on_conflict=user_id', {
+    method: 'POST', headers: { Prefer: 'resolution=merge-duplicates,return=representation' }, body: [row]
   });
   if (!out.ok) return res.status(out.status).json({ ok: false, error: sbErr(out, 'Could not save profile') });
   res.json({ ok: true, profile: Array.isArray(out.data) ? out.data[0] : out.data });
 });
 
-// ── Data: slip history (audit log) ──
-app.get('/api/history', requireAuth, async (_req, res) => {
-  const out = await sb('/rest/v1/salary_slip_history?select=*&order=created_at.desc&limit=300');
+// ── Data: slip history (audit log, PER USER) ──
+app.get('/api/history', requireAuth, async (req, res) => {
+  const uid = req.user && req.user.id;
+  const out = await sb('/rest/v1/salary_slip_history?user_id=eq.' + uid + '&select=*&order=created_at.desc&limit=300');
   if (!out.ok) return res.status(out.status).json({ ok: false, error: sbErr(out, 'Could not load history') });
   res.json({ ok: true, history: out.data || [] });
 });
 
 app.post('/api/history', requireAuth, async (req, res) => {
-  const rows = Array.isArray(req.body) ? req.body : [req.body];
+  const uid = req.user && req.user.id;
+  const rows = (Array.isArray(req.body) ? req.body : [req.body]).map(r => Object.assign({}, r, { user_id: uid }));
   if (!rows.length) return res.json({ ok: true, inserted: 0 });
   const out = await sb('/rest/v1/salary_slip_history', { method: 'POST', headers: { Prefer: 'return=minimal' }, body: rows });
   if (!out.ok) return res.status(out.status).json({ ok: false, error: sbErr(out, 'Could not save history') });
@@ -227,30 +268,36 @@ app.post('/api/history', requireAuth, async (req, res) => {
 // ── Email settings: set the Gmail App Password from the app (for online use) ──
 // Updates the live transporter and (if Supabase is configured) saves the
 // credentials to salary_profile so they persist across restarts.
-app.get('/api/smtp', requireAuth, (_req, res) => {
-  res.json({ ok: true, host: mailCfg.host, port: mailCfg.port, user: mailCfg.user, fromName: mailCfg.fromName, hasPassword: !!mailCfg.pass });
+app.get('/api/smtp', requireAuth, async (req, res) => {
+  const m = await getUserMailer(req.user && req.user.id);
+  if (m) return res.json({ ok: true, host: m.cfg.host, port: m.cfg.port, user: m.cfg.user, fromName: m.cfg.fromName, hasPassword: !!m.cfg.pass });
+  res.json({ ok: true, host: mailCfg.host, port: mailCfg.port, user: mailCfg.user, fromName: mailCfg.fromName, hasPassword: false });
 });
 app.post('/api/smtp', requireAuth, async (req, res) => {
+  const uid = req.user && req.user.id;
   const b = req.body || {};
-  if (b.host) mailCfg.host = String(b.host).trim();
-  if (b.port) mailCfg.port = Number(b.port) || mailCfg.port;
-  if (b.user) mailCfg.user = String(b.user).trim();
-  if (b.fromName) mailCfg.fromName = String(b.fromName).trim();
-  if (b.pass) mailCfg.pass = String(b.pass);      // only change when a new password is provided
-  transporter = buildTransport();
-  // Persist (best-effort). smtp_user/smtp_pass columns are optional — add them
-  // via supabase_schema.sql to keep the password across restarts.
-  if (sbReady) {
-    const patch = { smtp_host: mailCfg.host, smtp_port: mailCfg.port, from_name: mailCfg.fromName, from_email: mailCfg.user, smtp_user: mailCfg.user };
-    if (b.pass) patch.smtp_pass = mailCfg.pass;
-    let out = await sb('/rest/v1/salary_profile?id=eq.1', { method: 'PATCH', headers: { Prefer: 'return=minimal' }, body: patch });
-    if (!out.ok) {  // likely smtp_user/smtp_pass columns not added yet — save the safe fields only
-      const safe = { smtp_host: mailCfg.host, smtp_port: mailCfg.port, from_name: mailCfg.fromName, from_email: mailCfg.user };
-      await sb('/rest/v1/salary_profile?id=eq.1', { method: 'PATCH', headers: { Prefer: 'return=minimal' }, body: safe }).catch(() => {});
-    }
+  // Base on the user's current settings (or sensible defaults).
+  const cur = await getUserMailer(uid);
+  const cfg = Object.assign({ host: 'smtp.gmail.com', port: 587, user: '', pass: '', fromName: 'Accounts Department' }, cur ? cur.cfg : {});
+  if (b.host) cfg.host = String(b.host).trim();
+  if (b.port) cfg.port = Number(b.port) || cfg.port;
+  if (b.user) cfg.user = String(b.user).trim();
+  if (b.fromName) cfg.fromName = String(b.fromName).trim();
+  if (b.pass) cfg.pass = String(b.pass);          // only change when a new password is provided
+  // Persist to THIS user's profile (upsert). smtp_user/smtp_pass are optional
+  // columns — fall back to the safe fields if they don't exist yet.
+  const row = { user_id: uid, smtp_host: cfg.host, smtp_port: cfg.port, smtp_user: cfg.user, from_email: cfg.user, from_name: cfg.fromName };
+  if (b.pass) row.smtp_pass = cfg.pass;
+  let out = await sb('/rest/v1/salary_profile?on_conflict=user_id', { method: 'POST', headers: { Prefer: 'resolution=merge-duplicates,return=minimal' }, body: [row] });
+  if (!out.ok) {
+    const safe = { user_id: uid, smtp_host: cfg.host, smtp_port: cfg.port, from_email: cfg.user, from_name: cfg.fromName };
+    await sb('/rest/v1/salary_profile?on_conflict=user_id', { method: 'POST', headers: { Prefer: 'resolution=merge-duplicates,return=minimal' }, body: [safe] }).catch(() => {});
   }
-  try { await transporter.verify(); res.json({ ok: true, verified: true, hasPassword: !!mailCfg.pass }); }
-  catch (err) { res.json({ ok: true, verified: false, hasPassword: !!mailCfg.pass, error: err.message }); }
+  // Update this user's cached mailer and verify the login.
+  const tr = makeTransport(cfg);
+  userMailers.set(uid, { cfg, transporter: tr });
+  try { await tr.verify(); res.json({ ok: true, verified: true, hasPassword: !!cfg.pass }); }
+  catch (err) { res.json({ ok: true, verified: false, hasPassword: !!cfg.pass, error: err.message }); }
 });
 
 app.post('/send', requireAuth, async (req, res) => {
@@ -259,7 +306,8 @@ app.post('/send', requireAuth, async (req, res) => {
 
   const { to, subject, text, html, fromName, from, filename, pdfBase64 } = req.body || {};
 
-  if (!mailReady())
+  const m = await getUserMailer(req.user && req.user.id);
+  if (!m)
     return res.status(400).json({ ok: false, error: 'Email password not set — open Email Configuration and save your Gmail App Password.' });
   if (!to || !subject || (!text && !html && !pdfBase64))
     return res.status(400).json({ ok: false, error: 'Missing fields: need to, subject, and one of text/html/pdfBase64' });
@@ -275,10 +323,10 @@ app.post('/send', requireAuth, async (req, res) => {
   // Reply-To: prefer a real monitored address (the configured "from" the user
   // entered, else the authenticated account). Helps recipients reply and
   // improves deliverability/trust.
-  const replyTo = (from && EMAIL_RE.test(String(from))) ? from : mailCfg.user;
+  const replyTo = (from && EMAIL_RE.test(String(from))) ? from : m.cfg.user;
 
   const mail = {
-    from: `"${fromName || mailCfg.fromName}" <${mailCfg.user}>`,  // must match the authenticated account (DKIM/SPF alignment)
+    from: `"${fromName || m.cfg.fromName}" <${m.cfg.user}>`,  // must match the authenticated account (DKIM/SPF alignment)
     to,
     replyTo,
     subject,
@@ -294,7 +342,7 @@ app.post('/send', requireAuth, async (req, res) => {
   }
 
   try {
-    const info = await transporter.sendMail(mail);
+    const info = await m.transporter.sendMail(mail);
     console.log('✓ Sent to', to, '·', info.messageId);
     res.json({ ok: true, messageId: info.messageId });
   } catch (err) {
@@ -311,44 +359,6 @@ function textToHtml(t) {
     + esc + '</div>';
 }
 
-// If mail credentials were saved to Supabase earlier, load them so email works
-// after a restart without re-entering the password.
-async function loadMailFromDb() {
-  if (!sbReady) return;
-  try {
-    const out = await sb('/rest/v1/salary_profile?id=eq.1&select=*');
-    const p = out.ok && Array.isArray(out.data) ? out.data[0] : null;
-    if (!p) return;
-    if (p.smtp_host) mailCfg.host = p.smtp_host;
-    if (p.smtp_port) mailCfg.port = p.smtp_port;
-    if (p.smtp_user) mailCfg.user = p.smtp_user; else if (p.from_email) mailCfg.user = p.from_email;
-    if (p.from_name) mailCfg.fromName = p.from_name;
-    if (p.smtp_pass) mailCfg.pass = p.smtp_pass;
-    transporter = buildTransport();
-  } catch (_) { /* ignore */ }
-}
-
-// Verify SMTP credentials before announcing readiness (after loading from DB).
-loadMailFromDb().then(() => {
-  if (!mailReady()) { console.warn('⚠ Email password not set yet — set it in the app (Email Configuration).'); return; }
-  transporter.verify()
-    .then(() => console.log('✓ SMTP authenticated with', mailCfg.host, 'as', mailCfg.user))
-    .catch(err => console.warn('⚠ SMTP verify failed:', err.message, '\n  (the tool will still start; sending may fail)'));
-});
-
-app.listen(CONFIG.relayPort, () => {
-  const url = `http://localhost:${CONFIG.relayPort}`;
-  console.log(`\n✓ Sahayak Pay Roll running`);
-  console.log(`  Open  : ${url}  (the app + email engine)`);
-  console.log(`  Email : ${mailReady() ? mailCfg.fromName + ' <' + mailCfg.user + '>' : 'password not set — add it in the app'}`);
-  console.log(`  Login : ${sbReady ? 'enabled (Supabase) — sign up / log in to use' : 'disabled (no Supabase in .env)'}`);
-  console.log(`  Data  : ${sbReady ? 'profile, history & email settings saved to Supabase' : 'not saved (no Supabase in .env)'}\n`);
-
-  // Open the app in the default browser so `npm start` is one step.
-  // Set NO_OPEN=1 to skip (e.g. on a headless server).
-  if (!env.NO_OPEN) openBrowser(url);
-});
-
 // Open a URL in the default browser, cross-platform. Best-effort: a failure
 // here never stops the server — the user can always open the URL manually.
 function openBrowser(url) {
@@ -360,3 +370,32 @@ function openBrowser(url) {
     spawn(cmd, args, { stdio: 'ignore', detached: true }).on('error', () => {}).unref();
   } catch (_) { /* ignore — open manually */ }
 }
+
+// ── Start the HTTP server ONLY when run directly (local: `npm start`). ──
+// On Vercel the app is imported as a serverless handler (see api/index.js),
+// so we must NOT call app.listen() there — we just export `app`.
+if (require.main === module) {
+  if (mailReady()) {
+    transporter.verify()
+      .then(() => console.log('✓ Fallback SMTP authenticated with', mailCfg.host, 'as', mailCfg.user))
+      .catch(err => console.warn('⚠ Fallback SMTP verify failed:', err.message, '\n  (users with their own email settings are unaffected)'));
+  } else {
+    console.warn('⚠ No fallback email password in .env — each user must set their own in Email Configuration.');
+  }
+
+  app.listen(CONFIG.relayPort, () => {
+    const url = `http://localhost:${CONFIG.relayPort}`;
+    console.log(`\n✓ Sahayak Pay Roll running`);
+    console.log(`  Open  : ${url}  (the app + email engine)`);
+    console.log(`  Email : ${mailReady() ? mailCfg.fromName + ' <' + mailCfg.user + '>' : 'password not set — add it in the app'}`);
+    console.log(`  Login : ${sbReady ? 'enabled (Supabase) — sign up / log in to use' : 'disabled (no Supabase in .env)'}`);
+    console.log(`  Data  : ${sbReady ? 'profile, history & email settings saved to Supabase' : 'not saved (no Supabase in .env)'}\n`);
+
+    // Open the app in the default browser so `npm start` is one step.
+    // Set NO_OPEN=1 to skip (e.g. on a headless server).
+    if (!env.NO_OPEN) openBrowser(url);
+  });
+}
+
+// Export the Express app so Vercel (api/index.js) can use it as the handler.
+module.exports = app;

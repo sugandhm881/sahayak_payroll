@@ -1,0 +1,11 @@
+# Never upload secrets or local-only files to Vercel
+.env
+.env.local
+node_modules
+npm-debug.log*
+
+# Big original logo (the 256px sayahak_logo.png is used instead)
+sayahak_logo_2.5.png
+
+# Windows launchers — not needed on the server
+*.bat
