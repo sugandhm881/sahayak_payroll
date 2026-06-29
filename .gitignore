@@ -1,0 +1,13 @@
+# Dependencies
+node_modules/
+
+# npm logs
+npm-debug.log*
+
+# Local environment / secrets (never commit the mail password)
+.env
+.env.local
+
+# OS / editor cruft
+Thumbs.db
+.DS_Store

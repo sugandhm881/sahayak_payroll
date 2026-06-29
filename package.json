@@ -1,0 +1,27 @@
+{
+  "name": "sahayak-pay-roll",
+  "version": "1.0.0",
+  "description": "Sahayak Pay Roll — generate, download (PDF) and email salary slips for any company from a payroll Excel file, with login and Supabase-saved profile, history & email settings.",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "keywords": [
+    "salary-slip",
+    "payroll",
+    "smtp",
+    "relay",
+    "nodemailer"
+  ],
+  "license": "MIT",
+  "private": true,
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.7",
+    "express": "^4.21.2",
+    "nodemailer": "^9.0.1"
+  }
+}

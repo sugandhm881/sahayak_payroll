@@ -1,0 +1,9 @@
+{
+  // index.html vendors a large minified library (SheetJS)
+  // inline so the tool works as a single, double-clickable offline file.
+  // VS Code's embedded-script validator misparses that minified blob and
+  // reports false "syntax errors" (e.g. ')' expected on the library lines).
+  // The file is valid — verified with `node --check`. Turning off embedded
+  // script validation removes those false positives.
+  "html.validate.scripts": false
+}
